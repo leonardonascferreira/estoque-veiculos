@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estoque de Veículos</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; background: #f3f5f9; color: #222; }
+  header { background: #0b5ea8; color: #fff; padding: 16px 24px; }
+  main { max-width: 1000px; margin: 20px auto; padding: 0 16px; }
+  section { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  h2 { margin-top: 0; font-size: 18px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  input, select, button { padding: 8px; font-size: 14px; }
+  button { background: #0b5ea8; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
+  button.sec { background: #777; }
+  button.del { background: #c0392b; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e3e6ec; }
+  th { background: #eef2f8; }
+  #msg { color: #c0392b; min-height: 20px; }
+</style>
+</head>
+<body>
+<header><h1>Sistema Automotivo – Gestão de Estoque de Veículos</h1></header>
+<main>
+  <div id="msg"></div>
+
+  <section>
+    <h2>1. Marcas e Modelos</h2>
+    <div class="row">
+      <input id="novaMarca" placeholder="Nova marca (ex.: Toyota)">
+      <button onclick="criarMarca()">Adicionar marca</button>
+    </div>
+    <div class="row">
+      <select id="marcaParaModelo"></select>
+      <input id="novoModelo" placeholder="Novo modelo (ex.: Corolla)">
+      <button onclick="criarModelo()">Adicionar modelo</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Cadastro / Edição de Veículo</h2>
+    <input type="hidden" id="veiculoId">
+    <div class="row">
+      <select id="fMarca" onchange="carregarModelos('fMarca','fModelo')"></select>
+      <select id="fModelo"></select>
+      <input id="fAno" type="number" placeholder="Ano" style="width:90px">
+      <input id="fCor" placeholder="Cor" style="width:110px">
+      <input id="fPreco" type="number" step="0.01" placeholder="Preço" style="width:120px">
+      <input id="fKm" type="number" placeholder="Km" style="width:100px">
+      <select id="fStatus">
+        <option value="DISPONIVEL">Disponível</option>
+        <option value="RESERVADO">Reservado</option>
+        <option value="VENDIDO">Vendido</option>
+      </select>
+    </div>
+    <div class="row">
+      <button onclick="salvarVeiculo()">Salvar</button>
+      <button class="sec" onclick="limparForm()">Limpar</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Consulta e Filtros</h2>
+    <div class="row">
+      <select id="qMarca" onchange="carregarModelos('qMarca','qModelo', true)"></select>
+      <select id="qModelo"><option value="">Todos os modelos</option></select>
+      <input id="qAno" type="number" placeholder="Ano" style="width:90px">
+      <input id="qPrecoMin" type="number" placeholder="Preço mín." style="width:110px">
+      <input id="qPrecoMax" type="number" placeholder="Preço máx." style="width:110px">
+      <select id="qStatus">
+        <option value="">Qualquer status</option>
+        <option value="DISPONIVEL">Disponível</option>
+        <option value="RESERVADO">Reservado</option>
+        <option value="VENDIDO">Vendido</option>
+      </select>
+      <button onclick="listar()">Filtrar</button>
+      <button class="sec" onclick="limparFiltros()">Limpar filtros</button>
+    </div>
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Marca</th><th>Modelo</th><th>Ano</th><th>Cor</th><th>Preço</th><th>Km</th><th>Status</th><th>Ações</th></tr>
+      </thead>
+      <tbody id="tabela"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+const API = '/api';
+const $ = id => document.getElementById(id);
+
+function erro(texto) { $('msg').textContent = texto || ''; }
+
+async function req(url, opts) {
+  const r = await fetch(API + url, opts);
+  if (!r.ok) {
+    let texto = 'Erro ' + r.status;
+    try {
+      const j = await r.json();
+      texto = j.message || (j.errors && j.errors.map(e => e.defaultMessage).join('; ')) || texto;
+    } catch (e) {}
+    throw new Error(texto);
+  }
+  return r.status === 204 ? null : r.json();
+}
+
+const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+async function carregarMarcas() {
+  const marcas = await req('/marcas');
+  const opts = marcas.map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
+  $('marcaParaModelo').innerHTML = opts;
+  $('fMarca').innerHTML = opts;
+  $('qMarca').innerHTML = '<option value="">Todas as marcas</option>' + opts;
+  await carregarModelos('fMarca', 'fModelo');
+}
+
+async function carregarModelos(selMarca, selModelo, comTodos) {
+  const marcaId = $(selMarca).value;
+  const modelos = marcaId ? await req('/modelos?marcaId=' + marcaId) : [];
+  const opts = modelos.map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
+  $(selModelo).innerHTML = (comTodos ? '<option value="">Todos os modelos</option>' : '') + opts;
+}
+
+async function criarMarca() {
+  try {
+    erro();
+    await req('/marcas', json('POST', { nome: $('novaMarca').value }));
+    $('novaMarca').value = '';
+    await carregarMarcas();
+  } catch (e) { erro(e.message); }
+}
+
+async function criarModelo() {
+  try {
+    erro();
+    await req('/modelos', json('POST', { nome: $('novoModelo').value, marca: { id: +$('marcaParaModelo').value } }));
+    $('novoModelo').value = '';
+    await carregarModelos('fMarca', 'fModelo');
+  } catch (e) { erro(e.message); }
+}
+
+async function salvarVeiculo() {
+  const id = $('veiculoId').value;
+  const corpo = {
+    modelo: { id: +$('fModelo').value },
+    ano: +$('fAno').value,
+    cor: $('fCor').value,
+    preco: $('fPreco').value === '' ? null : +$('fPreco').value,
+    quilometragem: +$('fKm').value,
+    status: $('fStatus').value
+  };
+  try {
+    erro();
+    await req(id ? '/veiculos/' + id : '/veiculos', json(id ? 'PUT' : 'POST', corpo));
+    limparForm();
+    listar();
+  } catch (e) { erro(e.message); }
+}
+
+function limparForm() {
+  ['veiculoId', 'fAno', 'fCor', 'fPreco', 'fKm'].forEach(i => $(i).value = '');
+  $('fStatus').value = 'DISPONIVEL';
+}
+
+async function editar(id) {
+  const v = await req('/veiculos/' + id);
+  $('veiculoId').value = v.id;
+  $('fMarca').value = v.modelo.marca.id;
+  await carregarModelos('fMarca', 'fModelo');
+  $('fModelo').value = v.modelo.id;
+  $('fAno').value = v.ano;
+  $('fCor').value = v.cor;
+  $('fPreco').value = v.preco;
+  $('fKm').value = v.quilometragem;
+  $('fStatus').value = v.status;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function remover(id) {
+  if (!confirm('Remover o veículo ' + id + '?')) return;
+  try { await req('/veiculos/' + id, { method: 'DELETE' }); listar(); }
+  catch (e) { erro(e.message); }
+}
+
+async function listar() {
+  const p = new URLSearchParams();
+  const campos = { marcaId: 'qMarca', modeloId: 'qModelo', ano: 'qAno', precoMin: 'qPrecoMin', precoMax: 'qPrecoMax', status: 'qStatus' };
+  for (const [k, id] of Object.entries(campos)) if ($(id).value) p.append(k, $(id).value);
+  try {
+    erro();
+    const lista = await req('/veiculos?' + p.toString());
+    $('tabela').innerHTML = lista.map(v => `
+      <tr>
+        <td>${v.id}</td><td>${v.modelo.marca.nome}</td><td>${v.modelo.nome}</td><td>${v.ano}</td>
+        <td>${v.cor}</td><td>R$ ${Number(v.preco).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+        <td>${v.quilometragem.toLocaleString('pt-BR')}</td><td>${v.status}</td>
+        <td><button onclick="editar(${v.id})">Editar</button> <button class="del" onclick="remover(${v.id})">Excluir</button></td>
+      </tr>`).join('') || '<tr><td colspan="9">Nenhum veículo encontrado.</td></tr>';
+  } catch (e) { erro(e.message); }
+}
+
+function limparFiltros() {
+  ['qAno', 'qPrecoMin', 'qPrecoMax'].forEach(i => $(i).value = '');
+  $('qMarca').value = ''; $('qModelo').innerHTML = '<option value="">Todos os modelos</option>'; $('qStatus').value = '';
+  listar();
+}
+
+carregarMarcas().then(listar).catch(e => erro(e.message));
+</script>
+</body>
+</html>
